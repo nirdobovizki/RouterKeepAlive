@@ -5,12 +5,15 @@
 #include <DigitalWrite.h>
 #include <DigitalRead.h>
 #include <AnalogWrite.h>
-
+#include <ESP8266WiFi.h>
 
 State stateStart;
 State stateOff;
 State stateDetecting;
 State stateNoInternet;
+State stateNoInternetRecheck;
+State stateNoInternet2;
+State stateNoInternetEndWait;
 State stateReset;
 State stateWaitAfterReset;
 State stateAfterReset;
@@ -29,6 +32,7 @@ Timer timeAfterReset;
 void setup()
 {
 	Serial.begin(9600);
+  WiFi.mode(WIFI_STA);
 
 	inOffSwitch.Init(D2);
 	outLedRed.Init(D3, LOW);
@@ -37,7 +41,7 @@ void setup()
 	outRelay.Init(D6, LOW);
 	inNetworkDetect.Init("dobovizki");
 	timeNetworkDetect.Init(120000);
-	timeRecheckTimer.Init(60000);
+	timeRecheckTimer.Init(30000);
 	timeAfterReset.Init(60000);
 
 	StateMachine.GlobalActivity(&inOffSwitch, DigitalRead::StartSampling);
@@ -59,7 +63,24 @@ void setup()
 	stateNoInternet.Activity(&outLedRed, DigitalWrite::FastBlink);
 	stateNoInternet.Activity(&timeRecheckTimer, Timer::CallOnce);
 	stateNoInternet.Transition(&inOffSwitch, DigitalRead::OnHigh, &stateOff);
-	stateNoInternet.Transition(&timeRecheckTimer, Timer::Tick, &stateReset);
+	stateNoInternet.Transition(&timeRecheckTimer, Timer::Tick, &stateNoInternetRecheck);
+
+  stateNoInternetRecheck.Activity(&outLedRed, DigitalWrite::FastBlink);
+  stateNoInternetRecheck.Activity(&inNetworkDetect, NetworkDetect::DetectNow);
+  stateNoInternetRecheck.Transition(&inNetworkDetect, NetworkDetect::Found, &stateStart);
+  stateNoInternetRecheck.Transition(&inNetworkDetect, NetworkDetect::NotFound, &stateNoInternet2);
+  stateNoInternetRecheck.Transition(&inOffSwitch, DigitalRead::OnHigh, &stateOff);
+
+  stateNoInternet2.Activity(&outLedRed, DigitalWrite::FastBlink);
+  stateNoInternet2.Activity(&timeRecheckTimer, Timer::CallOnce);
+  stateNoInternet2.Transition(&inOffSwitch, DigitalRead::OnHigh, &stateOff);
+  stateNoInternet2.Transition(&timeRecheckTimer, Timer::Tick, &stateNoInternetEndWait);
+
+  stateNoInternetEndWait.Activity(&outLedRed, DigitalWrite::FastBlink);
+  stateNoInternetEndWait.Activity(&inNetworkDetect, NetworkDetect::DetectNow);
+  stateNoInternetEndWait.Transition(&inNetworkDetect, NetworkDetect::Found, &stateStart);
+  stateNoInternetEndWait.Transition(&inNetworkDetect, NetworkDetect::NotFound, &stateReset);
+  stateNoInternetEndWait.Transition(&inOffSwitch, DigitalRead::OnHigh, &stateOff);
 
 	stateReset.Activity(&outRelay, DigitalWrite::SlowPulse);
 	stateReset.Transition(&outRelay, DigitalWrite::EndPulse, &stateWaitAfterReset);
